@@ -1050,7 +1050,7 @@ void CXBMCApp::SetSystemVolume(JNIEnv *env, float percent)
   jfieldID fstreamMusic = env->GetStaticFieldID(cAudioManager, "STREAM_MUSIC", "I");
   jint stream_music = env->GetStaticIntField(cAudioManager, fstreamMusic);
   jmethodID msetStreamVolume = env->GetMethodID(cAudioManager, "setStreamVolume", "(III)V");
-  env->CallObjectMethod(oAudioManager, msetStreamVolume, stream_music, int(GetMaxSystemVolume(env)*percent), 0);
+  env->CallVoidMethod(oAudioManager, msetStreamVolume, stream_music, int(GetMaxSystemVolume(env)*percent), 0);
   env->DeleteLocalRef(oAudioManager);
   env->DeleteLocalRef(cAudioManager);
 }
