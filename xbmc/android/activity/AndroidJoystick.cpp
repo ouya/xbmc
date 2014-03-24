@@ -37,7 +37,7 @@ CAndroidJoystick::CAndroidJoystick()
   , m_prev_button(0)
 {
   p_AMotionEvent_getAxisValue = (typeof(AMotionEvent_getAxisValue)*) dlsym(RTLD_DEFAULT, "AMotionEvent_getAxisValue");
-  CXBMCApp::android_printf("CAndroidJoystick: AMotionEvent_getAxisValue: %p", p_AMotionEvent_getAxisValue);
+//  CXBMCApp::android_printf("CAndroidJoystick: AMotionEvent_getAxisValue: %p", p_AMotionEvent_getAxisValue);
 }
 
 CAndroidJoystick::~CAndroidJoystick()
@@ -114,8 +114,8 @@ bool CAndroidJoystick::onJoystickButtonEvent(AInputEvent* event)
   int32_t keycode = AKeyEvent_getKeyCode(event);
   int32_t action = AKeyEvent_getAction(event);
 
-  CXBMCApp::android_printf("CAndroidJoystick: button event (code: %d; action: %d; device:%d, src:%d)",
-                           keycode, action, deviceid, AInputEvent_getSource(event));
+//  CXBMCApp::android_printf("CAndroidJoystick: button event (code: %d; action: %d; device:%d, src:%d)",
+//                           keycode, action, deviceid, AInputEvent_getSource(event));
   
   uint8_t xbmcButton;
   switch (keycode)
@@ -217,6 +217,6 @@ void CAndroidJoystick::XBMC_JoyButton(uint8_t device, uint8_t button, bool up)
     }
   }
 
-  CXBMCApp::android_printf("XBMC_JoyButton(%u, %u, %u, %d)", newEvent.jbutton.type, newEvent.jbutton.which, newEvent.jbutton.button, newEvent.jbutton.holdTime);
+//  CXBMCApp::android_printf("XBMC_JoyButton(%u, %u, %u, %d)", newEvent.jbutton.type, newEvent.jbutton.which, newEvent.jbutton.button, newEvent.jbutton.holdTime);
   CWinEvents::MessagePush(&newEvent);
 }
