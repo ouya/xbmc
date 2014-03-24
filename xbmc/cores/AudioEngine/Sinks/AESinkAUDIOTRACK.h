@@ -48,7 +48,14 @@ public:
 private:
   virtual void Process();
 
+  CAEChannelInfo        GetChannelLayout(const AEAudioFormat& format);
+  const CAEDeviceInfo&  GetDeviceInfoFromName(const std::string& device);
+
+  bool InitializePassthroughTrack(AEAudioFormat& format, const std::string& device);
+  bool InitializeRegularTrack(AEAudioFormat& format, const std::string& device);
+
   static CAEDeviceInfo m_info;
+  static CAEDeviceInfo m_passthrough_info;
   AEAudioFormat      m_format;
   double             m_volume;
   bool               m_volume_changed;
@@ -64,4 +71,9 @@ private:
   volatile bool      m_draining;
   double             m_audiotrackbuffer_sec;
   double             m_audiotrack_empty_sec;
+
+  bool              m_passthrough;
+  CAEChannelInfo    m_channelLayout;
+  std::string       m_initDevice;
+  AEAudioFormat     m_initFormat;
 };

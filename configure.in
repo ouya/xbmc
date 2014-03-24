@@ -2541,10 +2541,10 @@ XB_CONFIG_MODULE([lib/ffmpeg], [
       ffmpg_config="$ffmpg_config --disable-libvorbis"
     fi
     if test "$use_ffmpeg_ac3dts" = "no"; then
-      ffmpg_config="$ffmpg_config --disable-parser=ac3 --disable-decoder=ac3 --disable-encoder=ac3"
-      ffmpg_config="$ffmpg_config --disable-parser=eac3 --disable-decoder=eac3 --disable-encoder=eac3"
-      ffmpg_config="$ffmpg_config --disable-parser=mlp --disable-decoder=mlp --disable-encoder=mlp"
-      ffmpg_config="$ffmpg_config --disable-parser=dca --disable-decoder=dca --disable-encoder=dca"
+      ffmpg_config="$ffmpg_config --disable-decoder=ac3 --disable-encoder=ac3"
+      ffmpg_config="$ffmpg_config --disable-decoder=eac3 --disable-encoder=eac3"
+      ffmpg_config="$ffmpg_config --disable-decoder=mlp --disable-encoder=mlp"
+      ffmpg_config="$ffmpg_config --disable-decoder=dca --disable-encoder=dca"
     else
       ffmpg_config="$ffmpg_config --enable-encoder=ac3"
     fi

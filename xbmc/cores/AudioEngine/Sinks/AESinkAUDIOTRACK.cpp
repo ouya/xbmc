@@ -55,17 +55,36 @@ static void pa_sconv_s16le_from_f32ne_neon(unsigned n, const float32_t *a, int16
 }
 #endif
 
+#define AUDIOTRACK_DEVICE_NAME "AudioTrack"
+#define AUDIOTRACK_PASSTHROUGH_DEVICE_NAME "AudioTrack-HDMI"
+
+#define ALSA_MAX_CHANNELS 16
+static enum AEChannel ALSAChannelMap[ALSA_MAX_CHANNELS + 1] = {
+  AE_CH_FL      , AE_CH_FR      , AE_CH_BL      , AE_CH_BR      , AE_CH_FC      , AE_CH_LFE     , AE_CH_SL      , AE_CH_SR      ,
+  AE_CH_UNKNOWN1, AE_CH_UNKNOWN2, AE_CH_UNKNOWN3, AE_CH_UNKNOWN4, AE_CH_UNKNOWN5, AE_CH_UNKNOWN6, AE_CH_UNKNOWN7, AE_CH_UNKNOWN8, /* for p16v devices */
+  AE_CH_NULL
+};
+
+static jint GetStaticIntField(JNIEnv *jenv, jclass cls, const std::string& field_name)
+{
+    jfieldID field = jenv->GetStaticFieldID(cls, field_name.c_str(), "I");
+    jint int_field = jenv->GetStaticIntField(cls, field);
+
+    return int_field;
+}
+
 static jint GetStaticIntField(JNIEnv *jenv, std::string class_name, std::string field_name)
 {
   class_name.insert(0, "android/media/");
   jclass cls = jenv->FindClass(class_name.c_str());
-  jfieldID field = jenv->GetStaticFieldID(cls, field_name.c_str(), "I");
-  jint int_field = jenv->GetStaticIntField(cls, field);
+  jint int_field = GetStaticIntField(jenv, cls, field_name);
   jenv->DeleteLocalRef(cls);
   return int_field;
 }
 
 CAEDeviceInfo CAESinkAUDIOTRACK::m_info;
+CAEDeviceInfo CAESinkAUDIOTRACK::m_passthrough_info;
+
 ////////////////////////////////////////////////////////////////////////////////////////////
 CAESinkAUDIOTRACK::CAESinkAUDIOTRACK()
   : CThread("audiotrack")
@@ -77,6 +96,42 @@ CAESinkAUDIOTRACK::CAESinkAUDIOTRACK()
 #endif
 }
 
+const CAEDeviceInfo& CAESinkAUDIOTRACK::GetDeviceInfoFromName(const std::string& device)
+{
+    return (device == AUDIOTRACK_DEVICE_NAME) ? m_info : m_passthrough_info;
+}
+
+inline CAEChannelInfo CAESinkAUDIOTRACK::GetChannelLayout(const AEAudioFormat& format)
+{
+  unsigned int count = 0;
+
+  if (format.m_dataFormat == AE_FMT_AC3 ||
+      format.m_dataFormat == AE_FMT_DTS ||
+      format.m_dataFormat == AE_FMT_EAC3) {
+    count = 2;
+  }
+  else if (format.m_dataFormat == AE_FMT_TRUEHD ||
+           format.m_dataFormat == AE_FMT_DTSHD) {
+    count = 8;
+  }
+  else
+  {
+    for (unsigned int c = 0; c < 8; ++c)
+      for (unsigned int i = 0; i < format.m_channelLayout.Count(); ++i)
+        if (format.m_channelLayout[i] == ALSAChannelMap[c])
+        {
+          count = c + 1;
+          break;
+        }
+  }
+
+  CAEChannelInfo info;
+  for (unsigned int i = 0; i < count; ++i)
+    info += ALSAChannelMap[i];
+
+  return info;
+}
+
 CAESinkAUDIOTRACK::~CAESinkAUDIOTRACK()
 {
 #if defined(HAS_AMLPLAYER)
@@ -84,38 +139,108 @@ CAESinkAUDIOTRACK::~CAESinkAUDIOTRACK()
 #endif
 }
 
-bool CAESinkAUDIOTRACK::Initialize(AEAudioFormat &format, std::string &device)
-{
-  m_format = format;
+bool CAESinkAUDIOTRACK::InitializePassthroughTrack(AEAudioFormat &format, const std::string &device) {
+    const CAEDeviceInfo& info = GetDeviceInfoFromName(device);
+
+    if(info.m_sampleRates.size() == 0) {
+        CLog::Log(LOGINFO, "InitializePassthroughTrack: Device '%s' has zero supported sample rates.", device.c_str());
+        return false;
+    }
+
+    size_t i = 0;
+    for (; i < info.m_sampleRates.size(); i++) {
+        if (format.m_sampleRate == info.m_sampleRates[i]) {
+            break;
+        }
+    }
+
+    if(i == info.m_sampleRates.size()) {
+        CLog::Log(LOGINFO, "InitializePassthroughTrack: Device '%s' does not support the requested sample rate %d", device.c_str(), format.m_sampleRate);
+        return false;
+    }
+
+    for (i = 0; i < info.m_dataFormats.size(); i++) {
+      if (format.m_dataFormat == info.m_dataFormats[i]) {
+        break;
+      }
+    }
+    if(i == info.m_dataFormats.size()) {
+        CLog::Log(LOGINFO, "Device '%s' does not support the requested data format %s.", device.c_str(), CAEUtil::DataFormatToStr(format.m_dataFormat));
+        return false;
+    }
+    else {
+        format.m_dataFormat = AE_FMT_S16LE;
+    }
+
+    if(i == info.m_dataFormats.size()) {
+        CLog::Log(LOGINFO, "InitializePassthroughTrack: Device '%s' does not support the requested data format %d", device.c_str(), format.m_dataFormat);
+        return false;
+    }
+
+    return true;
+}
+
+bool CAESinkAUDIOTRACK::InitializeRegularTrack(AEAudioFormat &format, const std::string &device) {
+  const CAEDeviceInfo& info = GetDeviceInfoFromName(device);
+
+  if(info.m_sampleRates.size() == 0) {
+    CLog::Log(LOGINFO, "Device '%s' has zero supported sample rates.", device.c_str());
+    return false;
+  }
 
   // default to 44100, all android devices support it.
   // then check if we can support the requested rate.
   unsigned int sampleRate = 44100;
-  for (size_t i = 0; i < m_info.m_sampleRates.size(); i++)
+  for (size_t i = 1; i < info.m_sampleRates.size(); i++)
   {
-    if (m_format.m_sampleRate == m_info.m_sampleRates[i])
+    if (format.m_sampleRate == info.m_sampleRates[i])
     {
-      sampleRate = m_format.m_sampleRate;
+      sampleRate = format.m_sampleRate;
       break;
     }
   }
-  m_format.m_sampleRate = sampleRate;
+  format.m_sampleRate = sampleRate;
 
   // default to AE_FMT_S16LE,
   // then check if we can support the requested format.
   AEDataFormat dataFormat = AE_FMT_S16LE;
-  for (size_t i = 0; i < m_info.m_dataFormats.size(); i++)
+  for (size_t i = 0; i < info.m_dataFormats.size(); i++)
   {
-    if (m_format.m_dataFormat == m_info.m_dataFormats[i])
+    if (format.m_dataFormat == info.m_dataFormats[i])
     {
-      dataFormat = m_format.m_dataFormat;
+      dataFormat = format.m_dataFormat;
       break;
     }
   }
-  m_format.m_dataFormat = dataFormat;
+  format.m_dataFormat = dataFormat;
 
-  m_format.m_channelLayout = m_info.m_channels;
-  m_format.m_frameSize = m_format.m_channelLayout.Count() * (CAEUtil::DataFormatToBits(m_format.m_dataFormat) >> 3);
+  return true;
+}
+
+bool CAESinkAUDIOTRACK::Initialize(AEAudioFormat &format, std::string &device)
+{
+  m_initFormat = format;
+  m_initDevice = device;
+
+  m_format.m_channelLayout = GetChannelLayout(format);
+
+  bool success = false;
+  if(AE_IS_RAW(format.m_dataFormat) && AUDIOTRACK_PASSTHROUGH_DEVICE_NAME == device) {
+    success = InitializePassthroughTrack(format, device);
+    m_passthrough       = true;
+  }
+  else {
+    success = InitializeRegularTrack(format, device);
+    m_passthrough   = false;
+  }
+
+  if(!success) {
+    CLog::Log(LOGERROR, "Unable to initialize sink.");
+    return false;
+  }
+
+  format.m_frameSize = format.m_channelLayout.Count() * (CAEUtil::DataFormatToBits(format.m_dataFormat) >> 3);
+  m_format = format;
 
   m_draining = false;
   m_volume_changed = false;
@@ -131,9 +256,9 @@ bool CAESinkAUDIOTRACK::Initialize(AEAudioFormat &format, std::string &device)
   }
 
   // m_min_frames is volatile and has been setup by Process()
-  m_format.m_frames = m_min_frames;
-  m_format.m_frameSamples = m_format.m_frames * m_format.m_channelLayout.Count();
-  format = m_format;
+  format.m_frames = m_min_frames;
+  format.m_frameSamples = format.m_frames * format.m_channelLayout.Count();
+  m_format = format;
 
   return true;
 }
@@ -151,9 +276,13 @@ void CAESinkAUDIOTRACK::Deinitialize()
 
 bool CAESinkAUDIOTRACK::IsCompatible(const AEAudioFormat format, const std::string device)
 {
-  return ((m_format.m_sampleRate    == format.m_sampleRate) &&
-          (m_format.m_dataFormat    == format.m_dataFormat) &&
-          (m_format.m_channelLayout == format.m_channelLayout));
+  return (
+      /* compare against the requested format and the real format */
+      (m_initFormat.m_sampleRate    == format.m_sampleRate    || m_format.m_sampleRate    == format.m_sampleRate   ) &&
+      (m_initFormat.m_dataFormat    == format.m_dataFormat    || m_format.m_dataFormat    == format.m_dataFormat   ) &&
+      (m_initFormat.m_channelLayout == format.m_channelLayout || m_format.m_channelLayout == format.m_channelLayout) &&
+      (m_initDevice == device)
+  );
 }
 
 double CAESinkAUDIOTRACK::GetDelay()
@@ -170,8 +299,7 @@ double CAESinkAUDIOTRACK::GetCacheTime()
   // returns the time in seconds that it will take
   // to underrun the buffer if no sample is added.
 
-  double sinkbuffer_seconds_to_empty = m_sinkbuffer_sec_per_byte * (double)m_sinkbuffer->GetReadSize();
-  return sinkbuffer_seconds_to_empty + m_audiotrack_empty_sec;
+    return GetDelay();
 }
 
 double CAESinkAUDIOTRACK::GetCacheTotal()
@@ -241,12 +369,13 @@ void  CAESinkAUDIOTRACK::SetVolume(float scale)
 
 void CAESinkAUDIOTRACK::EnumerateDevicesEx(AEDeviceInfoList &list, bool force)
 {
+  // TODO: Query ELD info for supported channel formats
   m_info.m_channels.Reset();
   m_info.m_dataFormats.clear();
   m_info.m_sampleRates.clear();
 
   m_info.m_deviceType = AE_DEVTYPE_PCM;
-  m_info.m_deviceName = "AudioTrack";
+  m_info.m_deviceName = AUDIOTRACK_DEVICE_NAME;
   m_info.m_displayName = "android";
   m_info.m_displayNameExtra = "audiotrack";
   m_info.m_channels += AE_CH_FL;
@@ -260,6 +389,48 @@ void CAESinkAUDIOTRACK::EnumerateDevicesEx(AEDeviceInfoList &list, bool force)
 #endif
 
   list.push_back(m_info);
+
+  // Build/setup the passthrough device
+  m_passthrough_info.m_deviceType = AE_DEVTYPE_HDMI;
+  m_passthrough_info.m_deviceName = AUDIOTRACK_PASSTHROUGH_DEVICE_NAME;
+  m_passthrough_info.m_displayName = "android-hdmi";
+  m_passthrough_info.m_displayNameExtra = "passthrough";
+  m_passthrough_info.m_channels += AE_CH_RAW;
+  m_passthrough_info.m_channels += AE_CH_RAW;
+  m_passthrough_info.m_sampleRates.push_back(44100);
+  m_passthrough_info.m_sampleRates.push_back(48000);
+  m_passthrough_info.m_dataFormats.push_back(AE_FMT_S16LE);
+  m_passthrough_info.m_dataFormats.push_back(AE_FMT_AAC);
+  m_passthrough_info.m_dataFormats.push_back(AE_FMT_AC3);
+  m_passthrough_info.m_dataFormats.push_back(AE_FMT_DTS);
+  m_passthrough_info.m_dataFormats.push_back(AE_FMT_EAC3);
+
+  // Unsure if these will be supported
+  m_passthrough_info.m_dataFormats.push_back(AE_FMT_TRUEHD);
+  m_passthrough_info.m_dataFormats.push_back(AE_FMT_DTSHD);
+  m_passthrough_info.m_dataFormats.push_back(AE_FMT_LPCM);
+#if defined(__ARM_NEON__)
+  if (g_cpuInfo.GetCPUFeatures() & CPU_FEATURE_NEON)
+    m_passthrough_info.m_dataFormats.push_back(AE_FMT_FLOAT);
+#endif
+
+  // Only add the passthrough device if it looks like passthrough will be supported.
+  JNIEnv *jenv = NULL;
+  CXBMCApp::AttachCurrentThread(&jenv, NULL);
+
+  jint audioFormat    = GetStaticIntField(jenv, "AudioFormat", "ENCODING_IEC61937_16BIT");
+  jthrowable exception = jenv->ExceptionOccurred();
+    // If an exception occurs, then passthrough is DEFINITELY not supported
+  if (exception)
+  {
+    jenv->ExceptionClear();
+  }
+  else
+  {
+    list.push_back(m_passthrough_info);
+  }
+
+  CXBMCApp::DetachCurrentThread();
 }
 
 void CAESinkAUDIOTRACK::Process()
@@ -283,6 +454,11 @@ void CAESinkAUDIOTRACK::Process()
 
   jint audioFormat    = GetStaticIntField(jenv, "AudioFormat", "ENCODING_PCM_16BIT");
   jint channelConfig  = GetStaticIntField(jenv, "AudioFormat", "CHANNEL_OUT_STEREO");
+
+  if(m_passthrough) {
+      CLog::Log(LOGDEBUG, "Setup AUDIOTRACK passthrough");
+      audioFormat    = GetStaticIntField(jenv, "AudioFormat", "ENCODING_IEC61937_16BIT");
+  }
 
   jint min_buffer_size = jenv->CallStaticIntMethod(jcAudioTrack, jmGetMinBufferSize,
     m_format.m_sampleRate, channelConfig, audioFormat);
