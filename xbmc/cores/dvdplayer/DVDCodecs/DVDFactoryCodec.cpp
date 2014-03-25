@@ -305,6 +305,7 @@ CDVDAudioCodec* CDVDFactoryCodec::CreateAudioCodec( CDVDStreamInfo &hint, bool p
 #if defined(TARGET_DARWIN_OSX) || defined(TARGET_DARWIN_IOS) || defined(TARGET_ANDROID)
     switch(hint.codec)
     {
+      case CODEC_ID_AAC:
       case CODEC_ID_AC3:
       case CODEC_ID_DTS:
         pCodec = OpenCodec( new CDVDAudioCodecPassthroughFFmpeg(), hint, options );

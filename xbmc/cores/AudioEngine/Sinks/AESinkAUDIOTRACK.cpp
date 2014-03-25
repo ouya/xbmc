@@ -105,25 +105,36 @@ inline CAEChannelInfo CAESinkAUDIOTRACK::GetChannelLayout(const AEAudioFormat& f
 {
   unsigned int count = 0;
 
-  if (format.m_dataFormat == AE_FMT_AC3 ||
-      format.m_dataFormat == AE_FMT_DTS ||
-      format.m_dataFormat == AE_FMT_EAC3) {
-    count = 2;
-  }
-  else if (format.m_dataFormat == AE_FMT_TRUEHD ||
-           format.m_dataFormat == AE_FMT_DTSHD) {
-    count = 8;
-  }
-  else
+  for (unsigned int c = 0; c < 8; ++c)
   {
-    for (unsigned int c = 0; c < 8; ++c)
-      for (unsigned int i = 0; i < format.m_channelLayout.Count(); ++i)
-        if (format.m_channelLayout[i] == ALSAChannelMap[c])
-        {
-          count = c + 1;
-          break;
-        }
+    for (unsigned int i = 0; i < format.m_channelLayout.Count(); ++i)
+    {
+      if (format.m_channelLayout[i] == ALSAChannelMap[c])
+      {
+        count = c + 1;
+        break;
+      }
+    }
   }
+
+  if(m_passthrough)
+  {
+    if (   format.m_dataFormat == AE_FMT_AC3
+        || format.m_dataFormat == AE_FMT_DTS
+        || format.m_dataFormat == AE_FMT_EAC3
+        || format.m_dataFormat == AE_FMT_TRUEHD
+        || format.m_dataFormat == AE_FMT_DTSHD
+       )
+    {
+      count = 2;
+    }
+//    else if (format.m_dataFormat == AE_FMT_TRUEHD ||
+//             format.m_dataFormat == AE_FMT_DTSHD) {
+//      count = 8;
+//    }
+  }
+
+  CLog::Log(LOGINFO, "GetChannelLayout: DataFormat %s, channel count %d.", CAEUtil::DataFormatToStr(format.m_dataFormat), count);
 
   CAEChannelInfo info;
   for (unsigned int i = 0; i < count; ++i)
@@ -222,16 +233,17 @@ bool CAESinkAUDIOTRACK::Initialize(AEAudioFormat &format, std::string &device)
   m_initFormat = format;
   m_initDevice = device;
 
-  m_format.m_channelLayout = GetChannelLayout(format);
 
   bool success = false;
   if(AE_IS_RAW(format.m_dataFormat) && AUDIOTRACK_PASSTHROUGH_DEVICE_NAME == device) {
-    success = InitializePassthroughTrack(format, device);
     m_passthrough       = true;
+    m_format.m_channelLayout = GetChannelLayout(format);
+    success = InitializePassthroughTrack(format, device);
   }
   else {
-    success = InitializeRegularTrack(format, device);
     m_passthrough   = false;
+    m_format.m_channelLayout = GetChannelLayout(format);
+    success = InitializeRegularTrack(format, device);
   }
 
   if(!success) {
@@ -406,9 +418,9 @@ void CAESinkAUDIOTRACK::EnumerateDevicesEx(AEDeviceInfoList &list, bool force)
   m_passthrough_info.m_dataFormats.push_back(AE_FMT_EAC3);
 
   // Unsure if these will be supported
-  m_passthrough_info.m_dataFormats.push_back(AE_FMT_TRUEHD);
-  m_passthrough_info.m_dataFormats.push_back(AE_FMT_DTSHD);
-  m_passthrough_info.m_dataFormats.push_back(AE_FMT_LPCM);
+//  m_passthrough_info.m_dataFormats.push_back(AE_FMT_TRUEHD);
+//  m_passthrough_info.m_dataFormats.push_back(AE_FMT_DTSHD);
+//  m_passthrough_info.m_dataFormats.push_back(AE_FMT_LPCM);
 #if defined(__ARM_NEON__)
   if (g_cpuInfo.GetCPUFeatures() & CPU_FEATURE_NEON)
     m_passthrough_info.m_dataFormats.push_back(AE_FMT_FLOAT);
