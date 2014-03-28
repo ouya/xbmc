@@ -65,19 +65,25 @@ static enum AEChannel ALSAChannelMap[ALSA_MAX_CHANNELS + 1] = {
   AE_CH_NULL
 };
 
-static jint GetStaticIntField(JNIEnv *jenv, jclass cls, const std::string& field_name)
+static bool GetStaticIntField(JNIEnv *jenv, jclass cls, const std::string& field_name, jint& int_field)
 {
-    jfieldID field = jenv->GetStaticFieldID(cls, field_name.c_str(), "I");
-    jint int_field = jenv->GetStaticIntField(cls, field);
+  jfieldID field = jenv->GetStaticFieldID(cls, field_name.c_str(), "I");
+  // GetStaticFieldID throws an exception if the field isn't found, so bail out if that happens
+  if(jenv->ExceptionOccurred())
+  {
+    jenv->ExceptionClear();
+    return false;
+  }
+  int_field = jenv->GetStaticIntField(cls, field);
 
-    return int_field;
+  return true;
 }
 
-static jint GetStaticIntField(JNIEnv *jenv, std::string class_name, std::string field_name)
+static bool GetStaticIntField(JNIEnv *jenv, std::string class_name, std::string field_name, jint& int_field)
 {
   class_name.insert(0, "android/media/");
   jclass cls = jenv->FindClass(class_name.c_str());
-  jint int_field = GetStaticIntField(jenv, cls, field_name);
+  GetStaticIntField(jenv, cls, field_name, int_field);
   jenv->DeleteLocalRef(cls);
   return int_field;
 }
@@ -98,7 +104,7 @@ CAESinkAUDIOTRACK::CAESinkAUDIOTRACK()
 
 const CAEDeviceInfo& CAESinkAUDIOTRACK::GetDeviceInfoFromName(const std::string& device)
 {
-    return (device == AUDIOTRACK_DEVICE_NAME) ? m_info : m_passthrough_info;
+    return (device == m_passthrough_info.m_deviceName) ? m_passthrough_info : m_info;
 }
 
 inline CAEChannelInfo CAESinkAUDIOTRACK::GetChannelLayout(const AEAudioFormat& format)
@@ -195,7 +201,7 @@ bool CAESinkAUDIOTRACK::InitializeRegularTrack(AEAudioFormat &format, const std:
   const CAEDeviceInfo& info = GetDeviceInfoFromName(device);
 
   if(info.m_sampleRates.size() == 0) {
-    CLog::Log(LOGINFO, "Device '%s' has zero supported sample rates.", device.c_str());
+    CLog::Log(LOGINFO, "Device '%s' has zero supported sample rates.", info.m_deviceName.c_str());
     return false;
   }
 
@@ -235,14 +241,15 @@ bool CAESinkAUDIOTRACK::Initialize(AEAudioFormat &format, std::string &device)
 
 
   bool success = false;
-  if(AE_IS_RAW(format.m_dataFormat) && AUDIOTRACK_PASSTHROUGH_DEVICE_NAME == device) {
+  if(AE_IS_RAW(format.m_dataFormat) && device.compare(AUDIOTRACK_PASSTHROUGH_DEVICE_NAME) == 0) {
+    CLog::Log(LOGDEBUG, "Initializing passthrough AUDIOTRACK");
     m_passthrough       = true;
     m_format.m_channelLayout = GetChannelLayout(format);
     success = InitializePassthroughTrack(format, device);
   }
   else {
     m_passthrough   = false;
-    m_format.m_channelLayout = GetChannelLayout(format);
+    m_format.m_channelLayout = m_info.m_channels;
     success = InitializeRegularTrack(format, device);
   }
 
@@ -293,7 +300,7 @@ bool CAESinkAUDIOTRACK::IsCompatible(const AEAudioFormat format, const std::stri
       (m_initFormat.m_sampleRate    == format.m_sampleRate    || m_format.m_sampleRate    == format.m_sampleRate   ) &&
       (m_initFormat.m_dataFormat    == format.m_dataFormat    || m_format.m_dataFormat    == format.m_dataFormat   ) &&
       (m_initFormat.m_channelLayout == format.m_channelLayout || m_format.m_channelLayout == format.m_channelLayout) &&
-      (m_initDevice == device)
+      (m_initDevice.compare(device) == 0)
   );
 }
 
@@ -430,16 +437,14 @@ void CAESinkAUDIOTRACK::EnumerateDevicesEx(AEDeviceInfoList &list, bool force)
   JNIEnv *jenv = NULL;
   CXBMCApp::AttachCurrentThread(&jenv, NULL);
 
-  jint audioFormat    = GetStaticIntField(jenv, "AudioFormat", "ENCODING_IEC61937_16BIT");
-  jthrowable exception = jenv->ExceptionOccurred();
-    // If an exception occurs, then passthrough is DEFINITELY not supported
-  if (exception)
+  jint audioFormat    = 0;
+  if(GetStaticIntField(jenv, "AudioFormat", "ENCODING_IEC61937_16BIT", audioFormat))
   {
-    jenv->ExceptionClear();
+    list.push_back(m_passthrough_info);
   }
   else
   {
-    list.push_back(m_passthrough_info);
+    CLog::Log(LOGDEBUG, "CAESinkAUDIOTRACK::EnumerateDevicesEx - passthrough device is not supported");
   }
 
   CXBMCApp::DetachCurrentThread();
@@ -464,12 +469,14 @@ void CAESinkAUDIOTRACK::Process()
   jmethodID jmPlayHeadPosition  = jenv->GetMethodID(jcAudioTrack, "getPlaybackHeadPosition", "()I");
   jmethodID jmGetMinBufferSize  = jenv->GetStaticMethodID(jcAudioTrack, "getMinBufferSize", "(III)I");
 
-  jint audioFormat    = GetStaticIntField(jenv, "AudioFormat", "ENCODING_PCM_16BIT");
-  jint channelConfig  = GetStaticIntField(jenv, "AudioFormat", "CHANNEL_OUT_STEREO");
+  jint audioFormat    = 0;
+  GetStaticIntField(jenv, "AudioFormat", "ENCODING_PCM_16BIT", audioFormat);
+  jint channelConfig  = 0;
+  GetStaticIntField(jenv, "AudioFormat", "CHANNEL_OUT_STEREO", channelConfig);
 
   if(m_passthrough) {
       CLog::Log(LOGDEBUG, "Setup AUDIOTRACK passthrough");
-      audioFormat    = GetStaticIntField(jenv, "AudioFormat", "ENCODING_IEC61937_16BIT");
+      GetStaticIntField(jenv, "AudioFormat", "ENCODING_IEC61937_16BIT", audioFormat);
   }
 
   jint min_buffer_size = jenv->CallStaticIntMethod(jcAudioTrack, jmGetMinBufferSize,
@@ -486,13 +493,17 @@ void CAESinkAUDIOTRACK::Process()
   m_sinkbuffer_sec_per_byte = 1.0 / (double)(m_sink_frameSize * m_format.m_sampleRate);
   m_sinkbuffer_sec = (double)m_sinkbuffer_sec_per_byte * m_sinkbuffer->GetMaxSize();
 
+  jint streamMusic = 0;
+  jint modeStream = 0;
+  GetStaticIntField(jenv, "AudioManager", "STREAM_MUSIC", streamMusic);
+  GetStaticIntField(jenv, "AudioTrack", "MODE_STREAM", modeStream);
   jobject joAudioTrack = jenv->NewObject(jcAudioTrack, jmInit,
-    GetStaticIntField(jenv, "AudioManager", "STREAM_MUSIC"),
+    streamMusic,
     m_format.m_sampleRate,
     channelConfig,
     audioFormat,
     min_buffer_size,
-    GetStaticIntField(jenv, "AudioTrack", "MODE_STREAM"));
+    modeStream);
 
   // The AudioTrack object has been created and waiting to play,
   m_inited.Set();
@@ -500,7 +511,8 @@ void CAESinkAUDIOTRACK::Process()
   sched_yield();
 
   // cache the playing int value.
-  jint playing = GetStaticIntField(jenv, "AudioTrack", "PLAYSTATE_PLAYING");
+  jint playing = 0;
+  GetStaticIntField(jenv, "AudioTrack", "PLAYSTATE_PLAYING", playing);
 
   // create a java byte buffer for writing pcm data to AudioTrack.
   jarray jbuffer = jenv->NewByteArray(min_buffer_size);
@@ -530,7 +542,7 @@ void CAESinkAUDIOTRACK::Process()
       jenv->CallVoidMethod(joAudioTrack, jmFlush);
     }
 
-    unsigned int read_bytes = m_sinkbuffer->GetReadSize();
+    int read_bytes = m_sinkbuffer->GetReadSize();
     if (read_bytes > min_buffer_size)
       read_bytes = min_buffer_size;
 
