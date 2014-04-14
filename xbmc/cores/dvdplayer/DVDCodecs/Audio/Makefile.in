@@ -8,9 +8,9 @@ SRCS += DVDAudioCodecLPcm.cpp
 SRCS += DVDAudioCodecPassthrough.cpp
 SRCS += DVDAudioCodecPcm.cpp
 
-ifeq ($(findstring osx,@ARCH@),osx)
+#ifeq ($(findstring osx,@ARCH@),osx)
 SRCS += DVDAudioCodecPassthroughFFmpeg.cpp
-endif
+#endif
 
 LIB=Audio.a
 

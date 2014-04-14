@@ -2603,7 +2603,7 @@ XB_CONFIG_MODULE([lib/ffmpeg], [
       --disable-encoders \
       --enable-encoder=aac \
       `if test "$use_ffmpeg_libvorbis" = "yes"; then echo --enable-libvorbis --enable-muxer=ogg --enable-encoder=libvorbis; else echo --disable-libvorbis; fi` \
-      `if test "$use_ffmpeg_ac3dts" = "no"; then echo --disable-parser=ac3 --disable-decoder=ac3 --disable-encoder=ac3 --disable-parser=dca --disable-decoder=dca --disable-encoder=dca --disable-parser=eac3 --disable-decoder=eac3 --disable-encoder=eac3 --disable-parser=mlp --disable-decoder=mlp --disable-encoder=mlp; else echo --enable-encoder=ac3; fi` \
+      `if test "$use_ffmpeg_ac3dts" = "no"; then echo --disable-decoder=ac3 --disable-encoder=ac3 --disable-decoder=dca --disable-encoder=dca --disable-decoder=eac3 --disable-encoder=eac3 --disable-decoder=mlp --disable-encoder=mlp; else echo --enable-encoder=ac3; fi` \
       --disable-decoder=mpeg_xvmc \
       --disable-devices \
       --disable-ffprobe \
