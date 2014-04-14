@@ -41,7 +41,7 @@
 #include "Audio/DVDAudioCodecLibMad.h"
 #include "Audio/DVDAudioCodecPcm.h"
 #include "Audio/DVDAudioCodecLPcm.h"
-#if defined(TARGET_DARWIN_OSX) || defined(TARGET_DARWIN_IOS)
+#if defined(TARGET_DARWIN_OSX) || defined(TARGET_DARWIN_IOS) || defined(TARGET_ANDROID)
 #include "Audio/DVDAudioCodecPassthroughFFmpeg.h"
 #endif
 #include "Audio/DVDAudioCodecPassthrough.h"
@@ -302,9 +302,10 @@ CDVDAudioCodec* CDVDFactoryCodec::CreateAudioCodec( CDVDStreamInfo &hint, bool p
 
   if (passthrough)
   {
-#if defined(TARGET_DARWIN_OSX) || defined(TARGET_DARWIN_IOS)
+#if defined(TARGET_DARWIN_OSX) || defined(TARGET_DARWIN_IOS) || defined(TARGET_ANDROID)
     switch(hint.codec)
     {
+      case CODEC_ID_AAC:
       case CODEC_ID_AC3:
       case CODEC_ID_DTS:
         pCodec = OpenCodec( new CDVDAudioCodecPassthroughFFmpeg(), hint, options );

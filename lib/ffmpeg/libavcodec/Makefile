@@ -26,7 +26,7 @@ OBJS = allcodecs.o                                                      \
 
 # parts needed for many different codecs
 OBJS-$(CONFIG_AANDCT)                  += aandcttab.o
-OBJS-$(CONFIG_AC3DSP)                  += ac3dsp.o
+OBJS-$(CONFIG_AC3DSP)                  += ac3dsp.o ac3.o
 OBJS-$(CONFIG_CRYSTALHD)               += crystalhd.o
 OBJS-$(CONFIG_ENCODERS)                += faandct.o jfdctfst.o jfdctint.o
 OBJS-$(CONFIG_DCT)                     += dct.o dct32_fixed.o dct32_float.o
